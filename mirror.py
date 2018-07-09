@@ -29,6 +29,8 @@ todo:
 # @update_metadata: updates the Byugle editVideoDataAdmin.php     #
 #   form to get thumbnail from elsewhere. Also records update     #
 #   history and fills in missing information on the form.         #
+#   TODO: Separate thumbnail-update functionality                 #
+#       from information-fill functionality                       #
 # @log: Simple logging function with error handling.              #
 # @update_video: Parse HTML, Mirror thumbnail, update metadata.   #
 ###################################################################
@@ -159,11 +161,8 @@ class Mirror():
         new_url = new_url.replace('%20',' ')
         URL = 'http://byugle.lib.byu.edu/editVideoDataAdmin.php'
         payload = {'vid': str(VID_ID)}
-        session = self.handler.session
-        page = session.get(URL, params=payload)
-        session_cookie = session.cookies['JSESSIONID']
-        php_cookie = session.cookies['PHPSESSID']
-        hbll_cookie = session.cookies['HBLL']
+        page = self.handler.session.get(URL, params=payload)
+
         print 'VID_ID: {}'.format(VID_ID)
 
         #log this update in the "Notes" metadata field
@@ -218,46 +217,17 @@ class Mirror():
         if params['txtThumbUrl'] != new_url:
             print('txtThumbUrl: ',params['txtThumbUrl'],'\n','new_url: ',new_url)
             if len(params['txtNotes']) == 0:
-                params['txtNotes'] = today + ': Thumbnail updated from:\n' + params['txtThumbUrl']
+                params['txtNotes'] = today + ': Thumbnail updated from:\n' + params['txtThumbUrl'] + '\n'
             else:
-                params['txtNotes'] += '\n' + today + ': Thumbnail updated from:\n' + params['txtThumbUrl']
+                params['txtNotes'] += '\n' + today + ': Thumbnail updated from:\n' + params['txtThumbUrl'] + '\n'
 
 
             #Update thumb URL
             params['txtThumbUrl'] = new_url
-
             URL = "http://byugle.lib.byu.edu/dbmod/dbEditVideoDataAdmin.php?vid=" + str(VID_ID)
-            post = session.post(URL, \
-                                headers={\
-                                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",\
-                                         "Accept-Encoding": "gzip, deflate",\
-                                         "Accept-Language": "en-US,en;q=0.5",\
-                                         "Connection": "keep-alive",\
-                                         "Content-Type": "application/x-www-form-urlencoded",
-                                         "Host": "byugle.lib.byu.edu",
-                                         "Referer": "http://byugle.lib.byu.edu/editVideoDataAdmin.php?vid=1022",
-                                         "Upgrade-Insecure-Requests": "1",
-                                         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:60.0) Gecko/20100101 Firefox/60.0",
-                                         "Cookie": \
-                                            "HBLL_IS_AUTH=true; " + \
-                                            #"JSESSIONID=" + session_cookie + "; " + \
-                                            "PHPSESSID=" + php_cookie + "; " + \
-                                            "HBLL="+hbll_cookie + ";" }, \
-                                         data=params)#'''
+            self.handler.update_video( URL, params )
 
-            soup = BeautifulSoup(post.content,'html.parser')
-            if len(soup(id='errMsg'))>0:
-                err = 'ERROR: '
-                #Here we are assuming that the error message is the only <p> tag on the page.
-                #TODO: A more elegant/foolproof way of getting the error msg.
-                err += soup.p.get_text() + '\n'
-                log(err)
-
-            file = open('test.html','w')
-            file.write(post.content)
-            file.close()
-
-        return session
+        return
 
 
     ###################################################################
@@ -265,9 +235,9 @@ class Mirror():
     ###################################################################
     # Simple logging function. Error handling, etc.                   #
     ###################################################################
-    def log( self, log_msg ):
+    def log( self, log_msg, log_filename='./log.txt' ):
         try:
-            log = open('./log.txt','ab')
+            log = open(log_filename,'ab')
             log.write(log_msg.encode('utf-8'))
         except OSError:
             print("Unable to write to log file")

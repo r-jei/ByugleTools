@@ -15,7 +15,7 @@ def main(argv):
         START_ID = argv[3]
 
     if len(argv) == 4:
-        END_ID = str(int(argv[3])+1)        
+        END_ID = str(int(argv[3])+1)
         
     if len(argv) == 5:
         if int(argv[4]) > int(START_ID):
@@ -30,6 +30,7 @@ def main(argv):
         print 'Usage: python mirror.py username password vid_id_start vid_id_end\n' +\
                 'vid_id_start must be less than vid_id_end'
         return
+    
     welcome = "\n#######################################\n WELCOME TO THE BYUGLE MIRROR PROGRAM\n" + \
     "#######################################\n"
     print(welcome)
