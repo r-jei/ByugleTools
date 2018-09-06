@@ -1,7 +1,10 @@
+import ast
+import re
 import os
 import requests
 from bs4 import BeautifulSoup
 import bs4
+import mirror
 
 ###################################################################
 #                              Handler                            #
@@ -23,8 +26,8 @@ class Handler():
     def __init__(self,un,pw):
         self.session = self.login(un,pw)
         self.session_cookie
-        self.php_cookie = self.session.cookies['PHPSESSID']
-        self.hbll_cookie = self.session.cookies['HBLL']
+        #self.php_cookie = self.session.cookies['PHPSESSID']
+        #self.hbll_cookie = self.session.cookies['HBLL']
         self.loadMaps()
         
     ###################################################################
@@ -38,43 +41,187 @@ class Handler():
     ###################################################################
     def login(self,un,pw):
         with requests.Session() as c:
-            URL = 'https://cas.byu.edu/cas/login?service=http://byugle.lib.byu.edu'
+            URL = 'https://cas.byu.edu/cas/login?service='+\
+                               'http://byugle.lib.byu.edu'
             page = c.get(URL)
             self.session_cookie = c.cookies['JSESSIONID']
 
-
             soup = BeautifulSoup(page.content, 'html.parser')
             lt_tags = soup.find_all(attrs={'name':'lt'})
-            LT = lt_tags[0]['value']        
+            LT = lt_tags[0]['value']
 
-            login_data = dict(username=un, password=pw, _eventId='submit', execution="e1s1", lt=LT)
+            login_data = dict(username=un, password=pw, _eventId='submit',
+                              execution="e1s1", lt=LT)
 
-            r_post = c.post(URL, data=login_data, headers={"Referer": "http://byugle.lib.byu.edu", "Cookie": "JSESSIONID="+self.session_cookie})
+            r_post = c.post(URL, data=login_data, headers={
+                "Referer": "http://byugle.lib.byu.edu", "Cookie": "JSESSIONID="
+                +self.session_cookie})
 
+
+            result = r_post.content
+            fi = open( 'my_html.html','w' )
+            fi.write( result )
+
+            self.handle_duo( c, result )
+            
             return c
 
+    def handle_duo( self, sess, result ):
+        # Check if Duo Multifactor Authentication is in progress
+        check = 'Multifactor Authentication is in progress...'
+        print(result)
+        if check in result:
+            self.TX_HOST = 'host'
+            self.TX_RQ = 'sig_request'
+            self.TX_ARG = 'post_argument'
+            pattern = re.compile( "Duo.init\({\s*'"+self.TX_HOST+ "':\s*'.*',\s*'"+self.TX_RQ+"':\s*'.*',\s*'"+self.TX_ARG+"':\s*'.*'\s*}\)" )
+            match = pattern.search( result )
+            
+            if match:
+                duo_str = match.group(0)
+                print( 'Match: {}'.format( match.group(0) ) )
+                dict_str = duo_str[9:]
+                dict_str = dict_str[:-1]
+                post_dict = ast.literal_eval( dict_str )
+                print('{}\n{}\n{}\n'.format( post_dict[self.TX_HOST], post_dict[self.TX_RQ],
+                                             post_dict[self.TX_ARG]))
+                self.tx = post_dict[self.TX_RQ][:96]
+            else:
+                print( 'No Match' )
+                raise Error()
+
+            self.auth_request( sess, post_dict )
+            
+        else:
+            return
+        
+    def auth_request( self, sess, dct ):
+
+        ############################################################
+        # get
+        ############################################################        
+        cookies = {'trc|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R':'EPL7DMTJSJ024EUK1VQ7','hac|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R':'|128.187.112.29|1535127182|1a2d395f2824afe9395520d7d11b15fce8b9df58'}
+        
+        URL = "https://" + dct[self.TX_HOST] + '/frame/web/v1/auth?tx=' + dct[self.TX_RQ][:96]
+        print(URL)
+        page = sess.get(URL, cookies=cookies)
+        f = open('TX.html','w')
+        f.write( page.content )
+        f.close()
+
+        ############################################################
+        # post
+        ############################################################
+
+
+        headers = {'Host': dct[self.TX_HOST],
+'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
+'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+'Accept-Language': 'en-US,en;q=0.5',
+'Accept-Encoding': 'gzip, deflate, br',
+'Referer': URL,
+#'Content-Type': 'application/x-www-form-urlencoded',
+#'Content-Length': '401',
+#'Cookie': cookies,
+'DNT': '1',
+'Connection': 'keep-alive',
+'Upgrade-Insecure-Requests': '1'}
+        
+        #why am i passing a member variable into the dictionary ? ? ? idk y r u
+        params = {'parent':'https://cas.byu.edu/cas/login?service=https%3A%2F%2Fhothq.lib.byu.edu%2Fauthenticate%2F%3Finstitution%3Dbyu%26c%3Dhttps%253A%252F%252Flib.byu.edu%252Faccount%252Flogin%252F','tx':dct[self.TX_RQ][:96]}
+        result = sess.post( URL, headers=headers,data=params,cookies=cookies )
+        
+        f = open('TX_post.html','w')
+        f.write( result.content )
+        f.close()
+
+        print( result.content )
+        soup = BeautifulSoup( result.content )
+        sid = soup.input['value']
+        print(sid)
+
+        URL = 'https://' + dct[self.TX_HOST] + '/frame/prompt'#'/?sid=' + sid
+        URL.replace('%7C','|')
+        print('after replace {}'.format(URL))
+
+        headers = {'Host': 'api-d3b66583.duosecurity.com',
+'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
+'Accept': 'text/plain, */*; q=0.01',
+'Accept-Language': 'en-US,en;q=0.5',
+'Accept-Encoding': 'gzip, deflate, br',
+'Referer': 'https://api-d3b66583.duosecurity.com/frame/prompt?sid='+sid,
+'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+'X-Requested-With': 'XMLHttpRequest',
+#'Content-Length': '205',
+#'Cookie': 'trc|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R=EPL7DMTJSJ024EUK1VQ7; hac|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R=|128.187.112.29|1535127182|1a2d395f2824afe9395520d7d11b15fce8b9df58',
+'DNT': '1',
+'Connection': 'keep-alive'}
+        print( headers['Referer'])
+        
+        result = sess.post(URL, headers=headers, cookies=cookies)
+        f = open('TX_redir.html','w')
+        f.write( result.content )
+        f.close()
+        
+        
+        
     def loadMaps( self ):
         self.dpt_map = dict()
-        self.dpt_map['0'] = 'Please select your department'
+        self.dpt_map['0'] = '-- or browse by department --'
         self.dpt_map['79'] = 'Alice Louise Reynolds'
+        self.dpt_map['2'] = 'American Heritage'
         self.dpt_map['81'] = 'American Studies'
+        self.dpt_map['3'] = 'Anthropology'
+        self.dpt_map['4'] = 'Asian and Near Eastern Languages'
+        self.dpt_map['86'] = 'Center for Language Studies'
         self.dpt_map['62'] = 'Center for Teaching and Learning'
+        self.dpt_map['76'] = 'Church History and Doctrine'
         self.dpt_map['71'] = 'Cluff Lecture Series'
+        self.dpt_map['9'] = 'Communications'
+        self.dpt_map['13'] = 'Department of Business Management'
+        self.dpt_map['14'] = 'Economics'
+        self.dpt_map['17'] = 'English'
         self.dpt_map['77'] = 'English Reading Series'
+        self.dpt_map['73'] = 'Entrepreneur Lecture Series'
+        self.dpt_map['67'] = 'Faculty Center'
+        self.dpt_map['19'] = 'Family Life'
+        self.dpt_map['74'] = 'Harvard Business School Seminar'
+        self.dpt_map['24'] = 'Health Science'
         self.dpt_map['68'] = 'Healthy Relationships Conference'
+        self.dpt_map['25'] = 'History'
         self.dpt_map['61'] = 'House of Learning'
+        self.dpt_map['26'] = 'Humanities, Classics, and Comparative Literature'
+        self.dpt_map['29'] = 'Integrative Biology'
+        self.dpt_map['78'] = 'International Studies'
         self.dpt_map['69'] = 'Joseph Smith Lectures'
         self.dpt_map['66'] = 'Library - Special Interests'
         self.dpt_map['83'] = 'Library Promos'
+        self.dpt_map['30'] = 'Linguistics and English Language'
         self.dpt_map['59'] = 'LRC'
         self.dpt_map['63'] = 'LRC/LDS'
+        self.dpt_map['31'] = 'Mathematics'
+        self.dpt_map['34'] = 'Microbiology and Molecular Biology'
         self.dpt_map['75'] = 'Music and Dance Library'
+        self.dpt_map['58'] = 'Nursing'
+        self.dpt_map['37'] = 'Nutrition, Dietetics, and Food Science'
+        self.dpt_map['64'] = 'Office of Academic Vice President'
         self.dpt_map['72'] = 'Other Lectures'
+        self.dpt_map['39'] = 'Philosophy'
+        self.dpt_map['40'] = 'Physics and Astronomy'
+        self.dpt_map['43'] = 'Political Science'
         self.dpt_map['82'] = 'Robert Burns'
+        self.dpt_map['47'] = 'School of Accountancy'
+        self.dpt_map['48'] = 'School of Music'
+        self.dpt_map['49'] = 'School of Technology'
+        self.dpt_map['50'] = 'Social Work'
+        self.dpt_map['51'] = 'Sociology'
+        self.dpt_map['52'] = 'Spanish and Portuguese'
         self.dpt_map['87'] = 'Special Collections'
+        self.dpt_map['55'] = 'Theatre and Media Arts'
         self.dpt_map['80'] = 'Thomas L. Kane'
         self.dpt_map['70'] = 'To Tell the Tale Lectures'
         self.dpt_map['60'] = 'UEN'
+        self.dpt_map['56'] = 'Visual Arts'
         self.dpt_map['85'] = 'Wheatley Forum'
 
         self.col_map = dict()
@@ -117,31 +264,32 @@ class Handler():
                                      "Upgrade-Insecure-Requests": "1",
                                      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:60.0) Gecko/20100101 Firefox/60.0",
                                      "Cookie": \
-                                        "HBLL_IS_AUTH=true; " + \
+                                        "HBLL_IS_AUTH=true; " },\
+                                 data=params)
                                         #"JSESSIONID=" + session_cookie + "; " + \
-                                        "PHPSESSID=" + self.php_cookie + "; " + \
-                                        "HBLL=" + self.hbll_cookie + ";" }, \
-                                     data=params)#'''
+                                        #"HBLL=" + self.hbll_cookie + ";" }, \
+
 
         soup = BeautifulSoup(post.content,'html.parser')
         if len(soup(id='errMsg'))>0:
             err = 'ERROR: '
             #Here we are assuming that the error message is the only <p> tag on the page.
             #TODO: A more elephant/foolproof way of getting the error msg.
-            err += soup.p.get_text() + '\n'
-            log(err)
+            err += soup.p.get_text()
+            #todo move log functionality from mirror.py to something more general
+            raise Exception(err)
 
-        '''for testing ---
+        #for testing ---
         file = open('test.html','w')
         file.write(post.content)
-        file.close()'''
+        file.close()
         
     ###################################################################
     #                              parse_HTML                         #
     ###################################################################
     # Gets video metadata, returns it in a dictionary                 #
     #                                                                 #
-    # @VID_ID: video's BYUgle ID (found in the video's URL)           #
+    # @vid_ID: video's BYUgle ID (found in the video's URL)           #
     # @return: Dictionary containing video metadata                   #    
     ###################################################################
     def parse_HTML( self, VID_ID ):
@@ -187,7 +335,7 @@ class Handler():
         dictionary['ruleYrStart'] = ''
         ###########
 
-        #byugle gives malformed <select> tags here. requires weird handling through siblings rather than through children
+        #byugle gives weird <select> tags here. requires weird handling through siblings rather than through children
         ###########
         for tag in soup.find_all(value='0'):
             if type(tag) == bs4.element.Tag:
