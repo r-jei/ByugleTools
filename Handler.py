@@ -41,8 +41,7 @@ class Handler():
     ###################################################################
     def login(self,un,pw):
         with requests.Session() as c:
-            URL = 'https://cas.byu.edu/cas/login?service='+\
-                               'http://byugle.lib.byu.edu'
+            URL = 'https://cas.byu.edu/cas/login'
             page = c.get(URL)
             self.session_cookie = c.cookies['JSESSIONID']
 
@@ -66,105 +65,149 @@ class Handler():
             
             return c
 
+        
+    ###################################################################
+    #                              TODO                               #
+    ###################################################################
+    #                                                                 #
+    ###################################################################
     def handle_duo( self, sess, result ):
         # Check if Duo Multifactor Authentication is in progress
         check = 'Multifactor Authentication is in progress...'
-        print(result)
         if check in result:
             self.TX_HOST = 'host'
             self.TX_RQ = 'sig_request'
             self.TX_ARG = 'post_argument'
-            pattern = re.compile( "Duo.init\({\s*'"+self.TX_HOST+ "':\s*'.*',\s*'"+self.TX_RQ+"':\s*'.*',\s*'"+self.TX_ARG+"':\s*'.*'\s*}\)" )
+            pattern = re.compile( "Duo.init\({\s*'" + self.TX_HOST + \
+                                  "':\s*'.*',\s*'" + self.TX_RQ + \
+                                  "':\s*'.*',\s*'" + self.TX_ARG + \
+                                  "':\s*'.*'\s*}\)" )
             match = pattern.search( result )
             
             if match:
                 duo_str = match.group(0)
-                print( 'Match: {}'.format( match.group(0) ) )
                 dict_str = duo_str[9:]
                 dict_str = dict_str[:-1]
                 post_dict = ast.literal_eval( dict_str )
-                print('{}\n{}\n{}\n'.format( post_dict[self.TX_HOST], post_dict[self.TX_RQ],
-                                             post_dict[self.TX_ARG]))
                 self.tx = post_dict[self.TX_RQ][:96]
             else:
-                print( 'No Match' )
                 raise Error()
 
             self.auth_request( sess, post_dict )
             
         else:
             return
+
         
+    ###################################################################
+    #                               TODO                              #
+    ###################################################################
+    #                                                                 #
+    ###################################################################
     def auth_request( self, sess, dct ):
 
-        ############################################################
-        # get
-        ############################################################        
-        cookies = {'trc|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R':'EPL7DMTJSJ024EUK1VQ7','hac|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R':'|128.187.112.29|1535127182|1a2d395f2824afe9395520d7d11b15fce8b9df58'}
+        cookies = {
+            'trc|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R':'EPL7DMTJSJ024EUK1VQ7',
+            'hac|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R':'|128.187.112.29|1535553787|d74f00945ff3ce0487feb5caccbc662a500fb8a4'
+        }
         
-        URL = "https://" + dct[self.TX_HOST] + '/frame/web/v1/auth?tx=' + dct[self.TX_RQ][:96]
-        print(URL)
-        page = sess.get(URL, cookies=cookies)
-        f = open('TX.html','w')
+        URL = "https://" + dct[self.TX_HOST] + \
+            '/frame/web/v1/auth?tx=' + \
+            dct[self.TX_RQ][:96] + \
+            '&parent=https://cas.byu.edu/cas/login'
+
+        params = {
+            'parent':'https://cas.byu.edu/cas/login',
+            'tx':dct[self.TX_RQ][:96]
+        }
+
+        headers = {'Host': dct[self.TX_HOST],
+                   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
+                   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                   'Accept-Language': 'en-US,en;q=0.5',
+                   'Accept-Encoding': 'gzip, deflate, br',
+                   'Referer': 'https://' + dct[self.TX_HOST],
+                   #'Cookie': cookies,
+                   'DNT': '1',
+                   'Connection': 'keep-alive',
+                   'Upgrade-Insecure-Requests': '1'}
+        print(headers)
+        
+        print('GET request to: ' + URL)
+        page = sess.get(URL, data=params, cookies=cookies)
+        print(page.status_code)
+        f = open('TX_get1.html','w')
         f.write( page.content )
         f.close()
 
-        ############################################################
-        # post
-        ############################################################
+
+
 
 
         headers = {'Host': dct[self.TX_HOST],
-'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
-'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-'Accept-Language': 'en-US,en;q=0.5',
-'Accept-Encoding': 'gzip, deflate, br',
-'Referer': URL,
-#'Content-Type': 'application/x-www-form-urlencoded',
-#'Content-Length': '401',
-#'Cookie': cookies,
-'DNT': '1',
-'Connection': 'keep-alive',
-'Upgrade-Insecure-Requests': '1'}
+                   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
+                   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                   'Accept-Language': 'en-US,en;q=0.5',
+                   'Accept-Encoding': 'gzip, deflate, br',
+                   'Referer': URL,
+                   'Connection': 'keep-alive',
+                   'Upgrade-Insecure-Requests': '1'}
         
-        #why am i passing a member variable into the dictionary ? ? ? idk y r u
-        params = {'parent':'https://cas.byu.edu/cas/login?service=https%3A%2F%2Fhothq.lib.byu.edu%2Fauthenticate%2F%3Finstitution%3Dbyu%26c%3Dhttps%253A%252F%252Flib.byu.edu%252Faccount%252Flogin%252F','tx':dct[self.TX_RQ][:96]}
+        params = {
+            'parent':'https://cas.byu.edu/cas/login',
+            'tx':dct[self.TX_RQ][:96]
+        }
+
+        print('POST req to:' + URL)
         result = sess.post( URL, headers=headers,data=params,cookies=cookies )
+        print(result.status_code)
         
-        f = open('TX_post.html','w')
+        f = open('TX_post1.html','w')
         f.write( result.content )
         f.close()
 
-        print( result.content )
-        soup = BeautifulSoup( result.content )
+
+
+        
+        
+        soup = BeautifulSoup( result.content, 'html.parser' )
         sid = soup.input['value']
-        print(sid)
 
         URL = 'https://' + dct[self.TX_HOST] + '/frame/prompt'#'/?sid=' + sid
         URL.replace('%7C','|')
-        print('after replace {}'.format(URL))
 
         headers = {'Host': 'api-d3b66583.duosecurity.com',
-'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
-'Accept': 'text/plain, */*; q=0.01',
-'Accept-Language': 'en-US,en;q=0.5',
-'Accept-Encoding': 'gzip, deflate, br',
-'Referer': 'https://api-d3b66583.duosecurity.com/frame/prompt?sid='+sid,
-'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-'X-Requested-With': 'XMLHttpRequest',
-#'Content-Length': '205',
-#'Cookie': 'trc|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R=EPL7DMTJSJ024EUK1VQ7; hac|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R=|128.187.112.29|1535127182|1a2d395f2824afe9395520d7d11b15fce8b9df58',
-'DNT': '1',
-'Connection': 'keep-alive'}
-        print( headers['Referer'])
-        
+                   'User-Agent': \
+                       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
+                   'Accept': 'text/plain, */*; q=0.01',
+                   'Accept-Language': 'en-US,en;q=0.5',
+                   'Accept-Encoding': 'gzip, deflate, br',
+                   'Referer': \
+                       'https://api-d3b66583.duosecurity.com/frame/prompt?sid='+sid,
+                   'Content-Type':
+                       'application/x-www-form-urlencoded; charset=UTF-8',
+                   'X-Requested-With': 'XMLHttpRequest',
+                   #'Content-Length': '205',
+                   #'Cookie': 'trc|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R=EPL7DMTJSJ024EUK1VQ7; hac|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R=|128.187.112.29|1535127182|1a2d395f2824afe9395520d7d11b15fce8b9df58',
+                   'DNT': '1',
+                   'Connection': 'keep-alive'}
+        print('POST req to: ' + URL )
         result = sess.post(URL, headers=headers, cookies=cookies)
+        print(result.status_code)
         f = open('TX_redir.html','w')
         f.write( result.content )
         f.close()
         
         
-        
+    ###################################################################
+    #                              login                              #
+    ###################################################################
+    # Uses username and password to get a logged-in Byugle session.   #
+    #                                                                 #
+    # @un: username                                                   #
+    # @pw: password                                                   #
+    # @return: logged-in Byugle session.                              #
+    ###################################################################
     def loadMaps( self ):
         self.dpt_map = dict()
         self.dpt_map['0'] = '-- or browse by department --'
@@ -244,12 +287,33 @@ class Handler():
         self.col_map['11'] = 'Physical & Math. Sciences '
         self.col_map['15'] = 'Religious Education'
 
+
+    ###################################################################
+    #                              login                              #
+    ###################################################################
+    # Uses username and password to get a logged-in Byugle session.   #
+    ###################################################################
     def dpt_name( self, num ):
         return self.dpt_map[num]
 
+    ###################################################################
+    #                            col_name                             #
+    ###################################################################
+    # Uses username and password to get a logged-in Byugle session.   #
+    ###################################################################
     def col_name( self, num ):
         return self.col_map[num]
 
+
+    ###################################################################
+    #                           update_video                          #
+    ###################################################################
+    # Uses username and password to get a logged-in Byugle session.   #
+    #                                                                 #
+    # @un: username                                                   #
+    # @pw: password                                                   #
+    # @return: logged-in Byugle session.                              #
+    ###################################################################
     def update_video( self, URL, params ):
 
         post = self.session.post(URL, \
@@ -263,20 +327,17 @@ class Handler():
                                      "Referer": "http://byugle.lib.byu.edu/editVideoDataAdmin.php?vid=1022",
                                      "Upgrade-Insecure-Requests": "1",
                                      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:60.0) Gecko/20100101 Firefox/60.0",
-                                     "Cookie": \
-                                        "HBLL_IS_AUTH=true; " },\
+                                     "Cookie": "HBLL_IS_AUTH=true; " },\
                                  data=params)
-                                        #"JSESSIONID=" + session_cookie + "; " + \
-                                        #"HBLL=" + self.hbll_cookie + ";" }, \
 
 
         soup = BeautifulSoup(post.content,'html.parser')
         if len(soup(id='errMsg'))>0:
             err = 'ERROR: '
-            #Here we are assuming that the error message is the only <p> tag on the page.
+            # assuming that the error message is the only <p> tag on the page.
             #TODO: A more elephant/foolproof way of getting the error msg.
             err += soup.p.get_text()
-            #todo move log functionality from mirror.py to something more general
+            #todo move log functionality from mirror.py to s.t.  more general
             raise Exception(err)
 
         #for testing ---
@@ -287,14 +348,13 @@ class Handler():
     ###################################################################
     #                              parse_HTML                         #
     ###################################################################
-    # Gets video metadata, returns it in a dictionary                 #
     #                                                                 #
-    # @vid_ID: video's BYUgle ID (found in the video's URL)           #
-    # @return: Dictionary containing video metadata                   #    
     ###################################################################
     def parse_HTML( self, VID_ID ):
         dictionary = dict()
-        page = self.session.get('http://byugle.lib.byu.edu/editVideoDataAdmin.php?vid='+VID_ID)
+        page = self.session.get('http://byugle.lib.byu.edu/' + \
+                                'editVideoDataAdmin.php?vid='+ \
+                                VID_ID)
         soup = BeautifulSoup(page.content, 'html.parser')
         dictionary['btnSubmit'] = 'Save'
 
@@ -309,7 +369,9 @@ class Handler():
         if soup.find(id='radRuleTypeOld').get('checked') != None:
             dictionary['radRuleType'] = 'old'
         else:
-            #if we get to this there's  a problem. we shouldn't be trying to make any new rules.
+            #if we get to this there's a problem.
+            #we shouldn't be trying to make any new rules.
+            #TODO maybe that's not necessarily true. rethink this.
             dictionary['radRuleType'] = 'new'
             #TODO more helpful error handling
             raise IOError
@@ -322,7 +384,7 @@ class Handler():
             dictionary["radUseRule"] = 'no'
         ###########
 
-        ########### Parameters for the creation of a new rule (not necessary for simple metadata changes)
+        ########### Parameters for the creation of a new rule
         dictionary['ruleCourse'] = ''
         dictionary['ruleCoursePrefix'] = ''
         dictionary['ruleDayEnd'] = ''
@@ -335,7 +397,8 @@ class Handler():
         dictionary['ruleYrStart'] = ''
         ###########
 
-        #byugle gives weird <select> tags here. requires weird handling through siblings rather than through children
+        # byugle gives weird <select> tags here not recognized by parser.html.
+        # handling through siblings rather than through children
         ###########
         for tag in soup.find_all(value='0'):
             if type(tag) == bs4.element.Tag:
@@ -371,51 +434,68 @@ class Handler():
                 if u'selected' in child.attrs:
                     dictionary['selExistingRules'] = child[u'value']
                     break
-                    #print( 'added selExistingRules: ' + dictionary['selExistingRules'] )
         ############
 
-        #remember to replace + with ' '
-        dictionary['txtAuthor'] = soup.find( id='txtAuthor' ).get( 'value' )
+        #remember to replace '+' with a whitespace
+        dictionary['txtAuthor'] = \
+            soup.find( id='txtAuthor' ).get( 'value' )
 
-        dictionary['txtBroadcastDay'] = soup.find( id='txtBroadcastDay' ).get( 'value' )
+        dictionary['txtBroadcastDay'] = \
+            soup.find( id='txtBroadcastDay' ).get( 'value' )
 
-        dictionary['txtBroadcastMon'] = soup.find( id='txtBroadcastMon' ).get( 'value' )
+        dictionary['txtBroadcastMon'] = \
+            soup.find( id='txtBroadcastMon' ).get( 'value' )
 
-        dictionary['txtBroadcastYr'] = soup.find( id='txtBroadcastYr' ).get( 'value' )
+        dictionary['txtBroadcastYr'] = \
+            soup.find( id='txtBroadcastYr' ).get( 'value' )
 
-        dictionary['txtCitations'] = soup.find( id='txtCitations' ).get( 'value' )
+        dictionary['txtCitations'] = \
+            soup.find( id='txtCitations' ).get( 'value' )
 
-        dictionary['txtConstraints'] = soup.find( id='txtConstraints' ).get( 'value' )
+        dictionary['txtConstraints'] = \
+            soup.find( id='txtConstraints' ).get( 'value' )
 
-        dictionary['txtCrApproveNum'] = soup.find( id='txtCrApproveNum' ).get( 'value' )
+        dictionary['txtCrApproveNum'] = \
+            soup.find( id='txtCrApproveNum' ).get( 'value' )
 
-        dictionary['txtCrHolder'] = soup.find( id='txtCrHolder' ).get( 'value' )
+        dictionary['txtCrHolder'] = \
+            soup.find( id='txtCrHolder' ).get( 'value' )
 
-        dictionary['txtCrYear'] = soup.find( id='txtCrYear' ).get( 'value' )
+        dictionary['txtCrYear'] = \
+            soup.find( id='txtCrYear' ).get( 'value' )
 
-        dictionary['txtDescription'] = soup.find( id='txtDescription' ).get_text()
+        dictionary['txtDescription'] = \
+            soup.find( id='txtDescription' ).get_text()
 
-        dictionary['txtDurHrs'] = soup.find( id='txtDurHrs' ).get( 'value' )
+        dictionary['txtDurHrs'] = \
+            soup.find( id='txtDurHrs' ).get( 'value' )
 
-        dictionary['txtDurMin'] = soup.find( id='txtDurMin' ).get( 'value' )
+        dictionary['txtDurMin'] = \
+            soup.find( id='txtDurMin' ).get( 'value' )
 
         dictionary['txtDurSec'] = soup.find( id='txtDurSec' ).get( 'value' )
 
         dictionary['txtEpisode'] = soup.find( id='txtEpisode' ).get( 'value' )
 
-        dictionary['txtEpisodeNum'] = soup.find( id='txtEpisodeNum' ).get( 'value' )
+        dictionary['txtEpisodeNum'] = \
+            soup.find( id='txtEpisodeNum' ).get( 'value' )
 
-        dictionary['txtExpiresDay'] = soup.find( id='txtExpiresDay' ).get( 'value' )
+        dictionary['txtExpiresDay'] = \
+            soup.find( id='txtExpiresDay' ).get( 'value' )
 
-        dictionary['txtExpiresMon'] = soup.find( id='txtExpiresMon' ).get( 'value' )
+        dictionary['txtExpiresMon'] = \
+            soup.find( id='txtExpiresMon' ).get( 'value' )
 
-        dictionary['txtExpiresYr'] = soup.find( id='txtExpiresYr' ).get( 'value' )
+        dictionary['txtExpiresYr'] = \
+            soup.find( id='txtExpiresYr' ).get( 'value' )
 
         dictionary['txtNotes'] = soup.find( id='txtNotes' ).get_text()
 
-        dictionary['txtOffCampusStreamUrl'] = soup.find( id='txtOffCampusStreamUrl' ).get( 'value' )
+        dictionary['txtOffCampusStreamUrl'] = \
+            soup.find( id='txtOffCampusStreamUrl' ).get( 'value' )
 
-        dictionary['txtStreamUrl'] = soup.find( id='txtStreamUrl' ).get( 'value' )
+        dictionary['txtStreamUrl'] = \
+            soup.find( id='txtStreamUrl' ).get( 'value' )
 
         dictionary['txtThumbUrl'] = soup.find( id='txtThumbUrl' ).get( 'value' )
 
