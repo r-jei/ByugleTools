@@ -6,14 +6,18 @@ import subprocess
 import os
 import shutil
 import requests
-from Handler import Handler
-from ConfigParser import RawConfigParser
+import Handler
+import ErrorMsg
+from Updater import Updater
+from configparser import RawConfigParser
+
+################################################################################
 
 ###################################################################
 #                            Renamer                              #
 ###################################################################
 # An object responsible chiefly for ensuring that information on
-# a website (in our case, the byugle streaming service) is kept
+# a website (in our case, the byugle streaming service) is kept up
 # to date after moving or renaming files.
 #
 # @__init__:
@@ -22,143 +26,173 @@ from ConfigParser import RawConfigParser
 #
 ###################################################################
 
-class Renamer():
+class Renamer(Updater):
+
+    ###################################################################
+    #
+    ###################################################################
     def __init__( self, username, password ):
-        self.handler = Handler(username, password)
-        self.config()
-        self.loadMaps()
-        self.mount_smbfs()
-
-    def loadMaps( self ):
-        self.dpt_map = dict()
-        self.dpt_map['0'] = None#'Please select your department'
-        self.dpt_map['79'] = 'ALR'#'Alice Louise Reynolds'
-        self.dpt_map['81'] = 'AmericanStudies'#'American Studies'
-        self.dpt_map['62'] = 'CTL'#'Center for teaching and Learning'
-        self.dpt_map['71'] = 'CluffLectures'#'Cluff Lecture Series'
-        self.dpt_map['77'] = 'ERS'#'English Reading Series'
-        self.dpt_map['68'] = 'HealthyRelations'#'Healthy Relationships Conference'
-        self.dpt_map['61'] = 'HOL'#'House of Learning'
-        self.dpt_map['69'] = 'JSLectures'#'Joseph Smith Lectures'
-        self.dpt_map['66'] = 'SpecialInterests'#'Library - Special Interests'
-        self.dpt_map['83'] = 'Promos'#'Library Promos'
-        self.dpt_map['59'] = 'LRC'
-        self.dpt_map['63'] = 'LRC-LDS'
-        self.dpt_map['75'] = 'Music-And-Dance'#'Music and Dance Library'
-        self.dpt_map['72'] = 'Other'#'Other Lectures'
-        self.dpt_map['82'] = 'RobertBurns'#'Robert Burns'
-        self.dpt_map['87'] = 'SpecialCollections'#'Special Collections'
-        self.dpt_map['80'] = 'ThomasLKane'#'Thomas L. Kane'
-        self.dpt_map['70'] = 'TTTLectures'#'To Tell the Tale Lectures'
-        self.dpt_map['60'] = 'UEN'
-        self.dpt_map['85'] = 'Wheatley'#'Wheatley Forum'
-
-        self.col_map = dict()
-        self.col_map['0'] = None#'Please select your College'
-        self.col_map['13'] = 'BYUAdministration'#'BYU Administration'
-        self.col_map['16'] = 'DavidKennedyCtr'#'David M. Kennedy Center'
-        self.col_map['2'] = 'EngineeringAndTech'#'Engineering and Technology'
-        self.col_map['14'] = 'FacultyCenter'#'Faculty Center'
-        self.col_map['3'] = 'FHSS'#'Family, Home, & Social Sciences'
-        self.col_map['4'] = 'FineArtsAndCommunications'#'Fine Arts and Communications'
-        self.col_map['12'] = 'HBLL'#'Harold B. Lee Library'
-        self.col_map['5'] = 'HealthAndPerformance'#'Health and Human Performance'
-        self.col_map['6'] = 'Humanities'
-        self.col_map['7'] = 'JRC-LawSchool'#'J. Reuben Clark Law School'
-        self.col_map['17'] = 'KennedyCtr'#'Kennedy Center'
-        self.col_map['1'] = 'LifeSciences'#'Life Sciences'
-        self.col_map['8'] = 'MarriottSchool'#'Marriott School of Management'
-        self.col_map['9'] = 'McKaySchool'#'McKay School of Education'
-        self.col_map['10'] = 'Nursing'
-        self.col_map['11'] = 'PhysicalAndMathSciences'#'Physical & Math. Sciences'
-        self.col_map['15'] = 'ReligiousEducation'#'Religious Education'
+        Updater.__init__(self)
         
+        self.mount_smbfs()
+        self.handler = Handler.Handler(username, password)
+        self.config()  
+        self.handler.loadMaps()
+        
+    ###################################################################
+    #
+    ###################################################################
+    def rename( self, old, new_path, filename ):
+
+        mtpt = self.SMB_MTPT
+        
+        if not os.path.exists( mtpt + new_path ):
+            try:
+                os.makedirs( mtpt + new_path )
+            except OSError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise
+        try:
+            os.rename( mtpt + old, mtpt + new_path + filename )
+        except OSError:
+            self.prep_log_msg( ErrorMsg.RENAME_FAIL )
+
+            
     ###################################################################
     #
     ###################################################################
     def update( self, VID_ID ):
         param_dict = self.handler.parse_HTML( VID_ID )
-        old = param_dict['txtStreamUrl']
-        dpt = self.dpt_map[ param_dict['selDept'] ]
-        col = self.col_map[ param_dict['selCollege'] ]
+        old_stream = param_dict['txtStreamUrl']
+        filename, extension, new_path = self.filename_ext_new(
+            param_dict, VID_ID
+        )
+        new_stream = new_path + filename + extension
+        valid = self.valid_url( old_stream, new_stream, VID_ID )
+
+        if valid:
+            try:
+                self.rename( old_stream, new_path, filename + extension )
+                self.update_note_field( param_dict )
+                msg =  'Updating to \n"' + new_path + filename + '"'
+                self.prep_log_msg( msg )
+            
+                param_dict['txtStreamUrl'] = new_stream 
+                URL = "http://byugle.lib.byu.edu" \
+                    + "/dbmod/dbEditVideoDataAdmin.php?vid=" \
+                    + str(VID_ID)
+
+                self.handler.post_form_data( URL, param_dict )
+
+            except (OSError, Exception) as exc:
+                self.prep_log_msg( repr(exc) )
+
+        self.commit_log_msg()
+
+    ###################################################################
+    #
+    ###################################################################
+    def valid_url( self, old_stream, new_stream, VID_ID ):
+        self.log_date_time()
+        msg = 'VID_ID:' + VID_ID  + ' - Stream URL update from\n"' \
+            + old_stream + '"'U
+        self.prep_log_msg( msg )
+
+        path_len = len( new_stream )
+        if path_len > 150:
+            msg = ErrorMsg.THUMB_LEN_WARN + str(path_len)
+            self.prep_log_msg( msg )
         
-        yr = param_dict['txtBroadcastYr']
+        if old_stream == '':
+            self.prep_log_msg( ErrorMsg.EMPTY_STREAM )
+            return False
+
+        if new_stream != old_stream:
+            return True
         
-        mon = param_dict['txtBroadcastMon']
-        if mon == '00':
-            mon = ''
         else:
-            mon = calendar.month_name[ int(mon) ][:3].upper()
+            msg = '"' + new_stream + '"\n' + ErrorMsg.SAME_URL
+            self.prep_log_msg( msg )
+            return False
+
             
-        day = param_dict['txtBroadcastDay']
-        if day == '00':
-            day = ''
+    ###################################################################
+    #
+    ###################################################################
+    def update_note_field( self, param_dict ):
+        today = str( datetime.date.today().year ) + '.' \
+            + str( datetime.date.today().month ) + '.' \
+            + str( datetime.date.today().day )
+        
+        note_update = '\n' + today + ': Stream URL updated from:\n' + \
+            param_dict['txtStreamUrl']
 
-        author = param_dict['txtAuthor']
-        regex = re.compile('[^a-zA-Z]')
-        author = regex.sub('',author)[:50]
-            
-        filename, extension = os.path.splitext(old)
-        filename = '{}{}{}_{}_{}_{}_VID{}'.format( yr, mon, day, col, dpt, author, VID_ID )
-        new_path = 'BYU/' + col + '/' + dpt + '/' + yr + '/'
-
-        self.rename(old,new_path,filename + extension)
-
-        today = str( datetime.date.today().year ) + '.' + str( datetime.date.today().month ) + '.' + str( datetime.date.today().day )
-        note_update = today + ': Stream URL updated from:\n' + param_dict['txtStreamUrl']
         if len( param_dict['txtNotes'] ) == 0:
             param_dict['txtNotes'] = note_update + '\n'
         else:
             param_dict['txtNotes'] += '\n' + note_update + '\n'
+
             
-        param_dict['txtStreamUrl'] = new_path + filename + extension
+    ###################################################################
+    #
+    ###################################################################
+    def day_mon_yr( self, param_dict ):
+        yr = param_dict['txtBroadcastYr']
+        mon = param_dict['txtBroadcastMon']
+        day = param_dict['txtBroadcastDay']
+        if yr == '0000':
+            yr = param_dict['txtCrYear']
+            if yr in ['0','00','000']:
+                yr = '0000'
 
-        URL = "http://byugle.lib.byu.edu/dbmod/dbEditVideoDataAdmin.php?vid=" + str(VID_ID)
-        self.handler.update_video( URL, param_dict  )
+        if mon == '00':
+            mon = ''
+            day = ''
+        else:
+            mon = calendar.month_name[ int(mon) ][:3].upper()
+            if day == '00':
+                day = ''
+                
+        return day, mon, yr
 
-    def rename( self, old, new_path, filename ):
-        to_BYU = self.MTPT + '/BYU/'
+    
+    ###################################################################
+    #
+    ###################################################################    
+    def author_title( self, param_dict ):
+        regex = re.compile('[^a-zA-Z0-9]')
+        author = param_dict['txtAuthor']
+        author = regex.sub('',author)[:25]
+        title = param_dict['txtTitle']
+        title = regex.sub('',title)[:25]
+
+        return author, title
+
+    
+    ###################################################################
+    #
+
+    ###################################################################
+    def dpt_col( self, param_dict ):
+        dpt     = self.handler.getDpt( param_dict['selDept'] )
+        college = self.handler.getCol( param_dict['selCollege'] )
+
+        return dpt, college
+
+    
+    ###################################################################
+    #
+    ###################################################################    
+    def filename_ext_new( self, param_dict, VID_ID ):
+        dpt, college = self.dpt_col( param_dict )
+        day, mon, yr = self.day_mon_yr( param_dict )
+        author, title = self.author_title( param_dict )
         
-        if not os.path.exists(self.MTPT + new_path):
-            try:
-                os.makedirs(self.MTPT + new_path)
-            except OSError as exc:
-                if exc.errno != errno.EEXIST:
-                    raise
-
-        print self.MTPT+old
-        print os.path.isfile( self.MTPT + old )
-        print os.path.isfile( self.MTPT + new_path + filename )
-        os.rename( self.MTPT + old, self.MTPT + new_path + filename )
+        old_stream = param_dict['txtStreamUrl']
         
-    ###################################################################
-    #
-    ###################################################################
-    def mount_smbfs( self ):
-        cmd = 'mount_smbfs //' + self.UN + ':' + self.PW + '@' + self.HOST + self.ROOT + ' ' + self.MTPT
-        subprocess.call(cmd.split())
+        filename, extension = os.path.splitext(old_stream)
+        filename = '{}{}{}_{}_{}_{}_VID{}'.format( yr, mon, day, dpt, author,
+                                                   title, VID_ID )
+        new_path = 'BYU/' + college + '/' + dpt + '/' + yr + '/'
 
-    ###################################################################
-    #                           config                                #
-    ###################################################################
-    #
-    #
-    #
-    ###################################################################
-    def config( self, filename='./config.ini' ):
-        try:
-            parser = RawConfigParser()
-            parser.read(filename)
-            section = 'SMB_vars'
-            
-            self.HOST = parser.get( section, 'HOST' )
-            self.UN = parser.get( section, 'UN' )
-            self.PW = parser.get( section, 'PW' )
-            self.ROOT = parser.get( section, 'ROOT' )
-            self.MTPT = parser.get( section, 'MTPT' )
-            
-        except OSError:
-            print( 'OSError: Config file parse failed' )
-
-if __name__ == '__main__':
-    pass
+        return filename, extension, new_path

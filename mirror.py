@@ -6,11 +6,11 @@ from paramiko import *
 from ftplib import FTP_TLS
 import datetime
 import calendar
-import urllib2
-from Handler import Handler
-from ConfigParser import RawConfigParser
-
-THUMB_URL_MAXLENGTH = 200
+import urllib.request, urllib.error, urllib.parse
+import Handler
+from Updater import Updater
+from configparser import RawConfigParser
+from ErrorMsg import *
 
 '''
 todo:
@@ -24,7 +24,7 @@ todo:
 # @self.handler: Handler.Handler()                                #
 #                                                                 #
 # methods                                                         #
-# @mirror_thumbnail: uses FTP to copy old thumbnails into new     #
+# @copy_thumb: uses FTP to copy old thumbnails into new     #
 #   locations on the FTP server.                                  #
 # @update_metadata: updates the Byugle editVideoDataAdmin.php     #
 #   form to get thumbnail from elsewhere. Also records update     #
@@ -32,15 +32,44 @@ todo:
 #   TODO: Separate thumbnail-update functionality                 #
 #       from information-fill functionality                       #
 # @log: Simple logging function with error handling.              #
-# @update_video: Parse HTML, Mirror thumbnail, update metadata.   #
+# @mirror_thumb: Parse HTML, Mirror thumbnail, update metadata.   #
 ###################################################################
-class Mirror():
+class Mirror(Updater):
     def __init__( self, username, password ):
-        self.handler = Handler(username, password)
+        Updater.__init__(self)
+        self.handler = Handler.Handler(username, password)
         self.config()
+        self.PREFIX = 'http://videoweb.lib.byu.edu/images/'
         
     ###################################################################
-    #                         mirror_thumbnail                        #
+    #                           mirror_thumb                          #
+    ###################################################################
+    # After parsing HTML, copy a new thumbnail and update online data #
+    #                                                                 #
+    # @VID_ID: The URL Video ID of the video to update.               #
+    ###################################################################
+    def mirror_thumb( self, VID_ID ):
+        param_dict = self.handler.parse_HTML( VID_ID )
+
+        new_url = self.copy_thumb(
+            param_dict['txtStreamUrl'],
+            param_dict['txtThumbUrl']
+        )
+
+        #handle this as an exception in the copy_thumb function
+        if new_url == None:
+            msg = '\nVID_ID:' + VID_ID + ' - ERROR: Unable to mirror thumbnail.\n\tThumbUrl: ' + '\'' + param_dict['txtThumbUrl'] + '\'\n' +\
+            '\tStreamUrl: ' + '\'' + param_dict['txtStreamUrl'] + '\''
+            print(msg)
+            
+            self.prep_log_msg(msg)
+            return None
+
+        return self.update_metadata( VID_ID, param_dict, new_url )
+
+    
+    ###################################################################
+    #                             copy_thumb                          #
     ###################################################################
     # Copy thumbnail file to the sftp thumbnail server at a location  #
     # analogous to that of the video file's location on the streaming #
@@ -60,88 +89,141 @@ class Mirror():
     # @thumb_url: The thumbnail URL exactly as it appeared on byugle  #
     # @return: The "New Thumb URL" of the new copy (as above).        #
     ###################################################################
-    def mirror_thumbnail( self, stream_url, thumb_url ):
-        PREFIX = 'http://videoweb.lib.byu.edu/images/'
+    def copy_thumb( self, stream_url, thumb_url ):
+        old_thumb_url, new_filepath, decoded_url = self.generate_urls(
+            thumb_url, stream_url
+        )
+
+        if all( v is None for v in [old_thumb_url, new_filepath, decoded_url] ):
+            return None
+
+        tr = Transport( (self.SFTP_HOST, int( self.SFTP_PORT) ) )
+        new_thumb_url = ''
+        
+        try:
+            tr.connect( username = self.SFTP_UN, password = self.SFTP_PW )
+            self.sftp = SFTPClient.from_transport( tr )
+            print(  self.sftp.getcwd() )
+            self.sftp.chdir( self.SFTP_START_DIR )
+            print(  self.sftp.getcwd() )
+            
+            if self.thumb_exists( decoded_url ) is None:
+                return None
+            
+            new_thumb_url, new_filename = self.setup_dirs(
+                decoded_url, new_filepath
+            )
+            self.copy( new_filename, old_thumb_url )
+                    
+        except Exception as exc:
+            print( repr(exc) )
+        finally:
+            tr.close()
+
+        return new_thumb_url
+
+    
+    ###################################################################
+    #
+    ###################################################################
+    #todo - this isn't going to change thumb_url because it's immutable
+    def generate_urls( self, thumb_url, stream_url ):
+
 
         #decode the url from percent-encoding
-        thumb_url = urllib2.unquote(thumb_url)
-        thumb_url = thumb_url.replace(PREFIX,'')
-        thumb_ext = os.path.splitext(thumb_url)[1]
-
+        decoded_url = urllib.parse.unquote(thumb_url)
+        decoded_url = decoded_url.replace(self.PREFIX,'')
+        thumb_ext = os.path.splitext(decoded_url)[1]
 
         stream_ext = os.path.splitext(stream_url)[1]
-        print '\'' + stream_ext + '\''
+        print(('"' + stream_ext + '"'))
         new_filepath = stream_url
         if stream_ext != '':
             new_filepath = new_filepath.replace(stream_ext,thumb_ext)
         else:
             new_filepath += thumb_ext
 
-        old_thumb_url = self.START_DIR + thumb_url
+        old_thumb_url = self.SFTP_START_DIR + decoded_url
 
-        if '' in [stream_url,thumb_url]:
+        if '' in [stream_url,decoded_url]:
             print('empty string in either stream or thumb url')
-            return None
+            return None, None, None
+        
+        return old_thumb_url, new_filepath, decoded_url
+
+    
+    ###################################################################
+    #
+    ###################################################################
+    def setup_dirs( self, decoded_url, new_filepath ):
+        self.sftp.chdir(None)
+        self.sftp.chdir(self.SFTP_START_DIR)
+
+        dirs = new_filepath.split('/')
+        
+        if dirs[0]=='BYU':
+            #set name of thumbnail folder within /images/
+            dirs[0] = "BYU_thumbs" 
+        else:
+            #this shouldn't happen often, as BYUgle forces BYU to be the first directory.
+            dirs.insert(0,'BYU_thumbs')
+            
+            dirs.insert(1,'root_images')
+                
+        new_thumb_url = self.PREFIX + '/'.join(dirs)
+        new_filename = dirs.pop()
+
+        #If path doesn't exist, make it
+        for dir in dirs:
+            try:
+                self.sftp.chdir(dir)
+            except IOError:
+                self.sftp.mkdir(dir)
+                self.sftp.chdir(dir)
+
+        #might be prettier to just pass back new_thumb_url and
+        #get the filename from that somehow
+        return new_thumb_url, new_filename
+
+    
+    ###################################################################
+    #
+    ###################################################################    
+    def copy( self, new_filename, old_thumb_url ):
+        #if file exists, do nothing
+        try:
+            file = self.sftp.file(new_filename)
+            file.close()
+            #if file doesn't exist, copy the new thumbnail file
+        except IOError:
+            self.sftp.file(new_filename,'x')
+            new_file = self.sftp.file(new_filename,'w')
+            self.sftp.getfo(old_thumb_url,new_file)
+            new_file.close()
+            
+    ###################################################################
+    #
+    ###################################################################
+    def thumb_exists( self, decoded_url ):
+        #check if there's a thumbnail image at the old thumbnail url
+        dirs = decoded_url.split('/')
+        old_thumb_filename = dirs.pop()
 
         try:
-            tr = Transport((self.HOST, self.PORT))
-            tr.connect(username=self.UN,password=self.PW)
-            sftp = SFTPClient.from_transport(tr)
-            sftp.chdir(self.START_DIR)
-
-            #check if there's a thumbnail image at the old thumbnail url 
-            dirs = thumb_url.split('/')
-            old_thumb_filename = dirs.pop()
-
-            try:
-                for dir in dirs:
-                    print(dir)
-                    sftp.chdir(dir)
-                print('name: ' + old_thumb_filename)
-                file = sftp.file(old_thumb_filename)
-                file.close()
-
-            except IOError:
-                print('no thumbnail on the old thumbnail url')
-                return None
-            sftp.chdir(None)
-            sftp.chdir(self.START_DIR)
-
-            dirs = new_filepath.split('/')
-
-            if dirs[0]=='BYU':
-                dirs[0] = "BYU_thumbs"  #set name of thumbnail folder within /images/
-            else:
-                dirs.insert(0,'BYU_thumbs')
-                #this shouldn't happen very often, as BYUgle forces BYU to be the first directory.
-                dirs.insert(1,'root_images')
-            new_thumb_url = PREFIX + string.join(dirs, '/')
-            new_thumb_url = new_thumb_url.replace(' ','%20')
-            new_filename = dirs.pop()
-
             for dir in dirs:
-                try:
-                    sftp.chdir(dir)
-                except IOError:
-                    sftp.mkdir(dir)
-                    sftp.chdir(dir)
+                print(dir)
+                self.sftp.chdir(dir)
+            print(('name: ' + old_thumb_filename))
+            file = self.sftp.file(old_thumb_filename)
+            file.close()
+            return True
+        
+        except IOError:
+            print('no thumbnail on the old thumbnail url')
+            return None
+        
 
-            #Check if file already exists
-            try:
-                file = sftp.file(new_filename)
-                file.close()
 
-            except IOError:
-                sftp.file(new_filename,'x')
-                new_file = sftp.file(new_filename,'w')
-                sftp.getfo(old_thumb_url,new_file)
-                new_file.close()
-        except:
-            print('Error connecting to SFTP server')
-        finally:
-            tr.close()
-
-        return new_thumb_url
 
 
     ##################################################################
@@ -163,21 +245,66 @@ class Mirror():
         payload = {'vid': str(VID_ID)}
         page = self.handler.session.get(URL, params=payload)
 
-        print 'VID_ID: {}'.format(VID_ID)
+        self.log_date_time()
+        
+        msg =  'VID_ID:' + str(VID_ID) + ' - Attempting update from OLD:\n\t' \
+            + params['txtThumbUrl'] + '\n\t' \
+            + 'to NEW:\n\t' \
+            + new_url
+        self.prep_log_msg( msg )
 
-        #log this update in the "Notes" metadata field
-        today = str(datetime.date.today().year) + '.' + str(datetime.date.today().month) + '.' + str(datetime.date.today().day)
-
-        log_msg = "\nVID_ID:" + VID_ID + " - Attempting update from OLD:\n\t" + params['txtThumbUrl'] + '\n\tto NEW:\n\t' + new_url + '\n'
-        self.log(log_msg)
-
-        if len(new_url) > THUMB_URL_MAXLENGTH:
-            log('ERROR: URL length above ' + str(THUMB_URL_MAXLENGTH))
-            print new_url
-            print 'ERROR: URL length above ' + str(THUMB_URL_MAXLENGTH)
+        if len(new_url) > THUMB_URL_MAXLEN:
+            self.prep_log_msg( THUMB_LEN_FAIL )
             return None
+       
+        self.update_description( params )
 
-        #Automatically fill in the description field with metadata (Byugle search only parses titles & descriptions)
+        if params['txtThumbUrl'] != new_url:
+            self.update_notes_field( params )
+ 
+            #Update thumb URL
+            params['txtThumbUrl'] = new_url
+            
+            URL = 'http://byugle.lib.byu.edu/' \
+                + 'dbmod/dbEditVideoDataAdmin.php?vid=' \
+                + str(VID_ID)
+            print(URL)
+            print('BEGIN PARAMS')
+            [print(item) for item in params.items()]
+            
+            self.handler.post_form_data( URL, params, log_response=True )
+
+        return
+
+    ###################################################################
+    #                        update_notes_field                       #
+    ###################################################################
+    #
+    ###################################################################
+    def update_notes_field( self, params ):
+        #log this update in the "Notes" metadata field
+        today = str(datetime.date.today().year) + '.' + \
+            str(datetime.date.today().month) + '.' + \
+            str(datetime.date.today().day)
+        
+        if len(params['txtNotes']) == 0:
+            params['txtNotes'] = today + ': Thumbnail updated from:\n' + \
+                params['txtThumbUrl'] + '\n'
+        else:
+            params['txtNotes'] += '\n' + today + ': Thumbnail updated from:\n' \
+                + params['txtThumbUrl'] + '\n'
+
+        return params['txtNotes']
+
+    
+    ###################################################################
+    #                        update_description                       #
+    ###################################################################
+    #
+    ###################################################################
+    def update_description( self, params ):
+
+        #Is there any metadata already in the description?
         desc_metadata = ['Date:', 'Series:', 'Speaker:', 'Author:', 'Title:']
         desc_has_metadata = False
         for item in desc_metadata:
@@ -201,90 +328,17 @@ class Mirror():
             date = 'Date: {}{}{}'.format( day, month_name, yr )
 
             if params['selDept'] == '77':
-                series = 'Series: English Reading Series (ERS)\n'
+                series = 'Series: English Reading Series (ERS)'
             else:
                 series = ''
 
-            speaker = 'Author: {}'.format( params['txtAuthor'].encode('utf-8') )
-            title = 'Title: {}'.format( params['txtTitle'].encode('utf-8'))
+            speaker = 'Author: ' + params['txtAuthor'].encode('utf-8')
+            title = 'Title: ' + params['txtTitle'].encode('utf-8')
 
-            desc_meta = '{}\n{}{}\n{}\n\n'.format( date,series,speaker,title )
-            print 'Adding to description:\n' + desc_meta
+            desc_meta = '{}\n{}\n{}\n{}\n\n'.format( date,series,speaker,title )
+            print(('Adding to description:\n' + desc_meta))
 
-            params['txtDescription'] = desc_meta + params['txtDescription'].encode('utf-8')
+            params['txtDescription'] = desc_meta \
+                + params['txtDescription'].encode('utf-8')
 
-
-        if params['txtThumbUrl'] != new_url:
-            print('txtThumbUrl: ',params['txtThumbUrl'],'\n','new_url: ',new_url)
-            if len(params['txtNotes']) == 0:
-                params['txtNotes'] = today + ': Thumbnail updated from:\n' + params['txtThumbUrl'] + '\n'
-            else:
-                params['txtNotes'] += '\n' + today + ': Thumbnail updated from:\n' + params['txtThumbUrl'] + '\n'
-
-
-            #Update thumb URL
-            params['txtThumbUrl'] = new_url
-            URL = "http://byugle.lib.byu.edu/dbmod/dbEditVideoDataAdmin.php?vid=" + str(VID_ID)
-            self.handler.update_video( URL, params )
-
-        return
-
-
-    ###################################################################
-    #                               log                               #
-    ###################################################################
-    # Simple logging function. Error handling, etc.                   #
-    ###################################################################
-    def log( self, log_msg, log_filename='./log.txt' ):
-        try:
-            log = open(log_filename,'ab')
-            log.write(log_msg.encode('utf-8'))
-        except OSError:
-            print("Unable to write to log file")
-            
-    ###################################################################
-    #                              config                             #
-    ###################################################################
-    def config( self, filename='./config.ini' ):
-        try:
-            print(os.getcwd())
-            parser = RawConfigParser()
-            parser.read(filename)
-            section = 'SFTP_vars'
-            
-            self.HOST = parser.get(section,'HOST')
-            self.PORT = int(parser.get(section,'PORT'))
-            self.UN = parser.get(section,'UN')
-            self.PW = parser.get(section,'PW')
-            self.START_DIR = parser.get(section,'START_DIR')
-            
-        except OSError:
-            print( 'OSError: Config file parse failed' )
-            
-    ###################################################################
-    #                           update_video                          #
-    ###################################################################
-    # After parsing HTML, copy a new thumbnail and update online data #
-    #                                                                 #
-    # @VID_ID: The URL Video ID of the video to update.               #
-    ###################################################################
-    def update_video( self, VID_ID ):
-        param_dict = self.handler.parse_HTML( VID_ID )
-
-        new_url = self.mirror_thumbnail( param_dict['txtStreamUrl'], param_dict['txtThumbUrl'] )
-
-        #handle this as an exception in the mirror_thumbnail function
-        if new_url == None:
-            msg = '\nVID_ID:' +VID_ID + ' - ERROR: Unable to mirror thumbnail.\n\tThumbUrl: ' + '\'' + param_dict['txtThumbUrl'] + '\'\n' +\
-            '\tStreamUrl: ' + '\'' + param_dict['txtStreamUrl'] + '\'\n'
-            print msg
-            
-            log(msg)  
-            return None
-
-        return self.update_metadata( VID_ID, param_dict, new_url )
-
-
-
-
-
+            return params['txtDescription']

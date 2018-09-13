@@ -1,3 +1,4 @@
+import urllib
 import ast
 import re
 import os
@@ -5,6 +6,61 @@ import requests
 from bs4 import BeautifulSoup
 import bs4
 import mirror
+
+#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*
+#------------------------------------------------------------------------------#
+#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*
+
+POST_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Connection": "keep-alive",
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Host": "byugle.lib.byu.edu",
+    "Referer": "http://byugle.lib.byu.edu/editVideoDataAdmin.php",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:60.0) Gecko/20100101 Firefox/60.0"
+}
+
+HEADERS1 = {
+    #'Host': dct[self.TX_HOST],
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    #'Referer': params['parent'],
+    #'Cookie': cookies,
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1'
+}
+
+HEADERS2 = {
+    #'Host': dct[self.TX_HOST],
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    #'Referer': 'https://' + dct[self.TX_HOST] + '/frame/web/v1/auth?tx=' + urllib.quote_plus(dct[self.TX_RQ][:96]) + '&parent=' + urllib.quote_plus(params['parent']),
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+}
+
+
+HEADER3 = {
+    'Host': 'api-d3b66583.duosecurity.com',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
+    'Accept': 'text/plain, */*; q=0.01',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    #'Referer': 'https://api-d3b66583.duosecurity.com/frame/prompt?sid='+sid,
+    'Content-Type':
+    'application/x-www-form-urlencoded; charset=UTF-8',
+    'X-Requested-With': 'XMLHttpRequest',
+    'DNT': '1',
+    'Connection': 'keep-alive'
+}
+
 
 ###################################################################
 #                              Handler                            #
@@ -26,8 +82,8 @@ class Handler():
     def __init__(self,un,pw):
         self.session = self.login(un,pw)
         self.session_cookie
-        #self.php_cookie = self.session.cookies['PHPSESSID']
-        #self.hbll_cookie = self.session.cookies['HBLL']
+        self.php_cookie = self.session.cookies['PHPSESSID']
+        self.hbll_cookie = self.session.cookies['HBLL']
         self.loadMaps()
         
     ###################################################################
@@ -41,7 +97,8 @@ class Handler():
     ###################################################################
     def login(self,un,pw):
         with requests.Session() as c:
-            URL = 'https://cas.byu.edu/cas/login'
+            URL = 'https://cas.byu.edu/cas/login?service='+\
+                               'http://byugle.lib.byu.edu'
             page = c.get(URL)
             self.session_cookie = c.cookies['JSESSIONID']
 
@@ -56,13 +113,10 @@ class Handler():
                 "Referer": "http://byugle.lib.byu.edu", "Cookie": "JSESSIONID="
                 +self.session_cookie})
 
-
-            result = r_post.content
+            result = r_post.content.decode( 'utf8' )
             fi = open( 'my_html.html','w' )
             fi.write( result )
 
-            self.handle_duo( c, result )
-            
             return c
 
         
@@ -98,17 +152,16 @@ class Handler():
         else:
             return
 
-        
     ###################################################################
     #                               TODO                              #
     ###################################################################
     #                                                                 #
     ###################################################################
     def auth_request( self, sess, dct ):
-
+        
         cookies = {
             'trc|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R':'EPL7DMTJSJ024EUK1VQ7',
-            'hac|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R':'|128.187.112.29|1535553787|d74f00945ff3ce0487feb5caccbc662a500fb8a4'
+            'hac|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R':'|128.187.112.29|1535568352|49f3cd7f82d19e226d9a20d84657e326474c83f0'
         }
         
         URL = "https://" + dct[self.TX_HOST] + \
@@ -120,55 +173,39 @@ class Handler():
             'parent':'https://cas.byu.edu/cas/login',
             'tx':dct[self.TX_RQ][:96]
         }
-
-        headers = {'Host': dct[self.TX_HOST],
-                   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
-                   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                   'Accept-Language': 'en-US,en;q=0.5',
-                   'Accept-Encoding': 'gzip, deflate, br',
-                   'Referer': 'https://' + dct[self.TX_HOST],
-                   #'Cookie': cookies,
-                   'DNT': '1',
-                   'Connection': 'keep-alive',
-                   'Upgrade-Insecure-Requests': '1'}
-        print(headers)
+        
+        HEADERS1['Host'] = dct[self.TX_HOST]
+        HEADERS1['Referer'] = params['parent']
+        print(HEADERS1)
         
         print('GET request to: ' + URL)
-        page = sess.get(URL, data=params, cookies=cookies)
+        page = sess.get(URL, data=params )
         print(page.status_code)
+        print('get1:\n{}'.format(page.HEADERS1))
+        
         f = open('TX_get1.html','w')
         f.write( page.content )
         f.close()
-
-
-
-
-
-        headers = {'Host': dct[self.TX_HOST],
-                   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
-                   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                   'Accept-Language': 'en-US,en;q=0.5',
-                   'Accept-Encoding': 'gzip, deflate, br',
-                   'Referer': URL,
-                   'Connection': 'keep-alive',
-                   'Upgrade-Insecure-Requests': '1'}
         
         params = {
             'parent':'https://cas.byu.edu/cas/login',
             'tx':dct[self.TX_RQ][:96]
         }
-
+        #'Referer': 'https://' + dct[self.TX_HOST] + '/frame/web/v1/auth?tx=' + urllib.quote_plus(dct[self.TX_RQ][:96]) + '&parent=' + urllib.quote_plus(params['parent']),
         print('POST req to:' + URL)
-        result = sess.post( URL, headers=headers,data=params,cookies=cookies )
+        HEADERS2['Host'] = dct[self.TX_HOST]
+        HEADERS2['Referer'] = 'https://' + dct[self.TX_HOST] \
+            + '/frame/web/v1/auth?tx=' \
+            + urllib.quote_plus(dct[self.TX_RQ][:96]) + '&parent=' \
+            + urllib.quote_plus(params['parent']),
+        
+        result = sess.post( URL, headers=HEADERS2, data=params )
         print(result.status_code)
+        print('\n{}\n'.format(result.HEADERS2))
         
         f = open('TX_post1.html','w')
         f.write( result.content )
         f.close()
-
-
-
-        
         
         soup = BeautifulSoup( result.content, 'html.parser' )
         sid = soup.input['value']
@@ -176,159 +213,136 @@ class Handler():
         URL = 'https://' + dct[self.TX_HOST] + '/frame/prompt'#'/?sid=' + sid
         URL.replace('%7C','|')
 
-        headers = {'Host': 'api-d3b66583.duosecurity.com',
-                   'User-Agent': \
-                       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0',
-                   'Accept': 'text/plain, */*; q=0.01',
-                   'Accept-Language': 'en-US,en;q=0.5',
-                   'Accept-Encoding': 'gzip, deflate, br',
-                   'Referer': \
-                       'https://api-d3b66583.duosecurity.com/frame/prompt?sid='+sid,
-                   'Content-Type':
-                       'application/x-www-form-urlencoded; charset=UTF-8',
-                   'X-Requested-With': 'XMLHttpRequest',
-                   #'Content-Length': '205',
-                   #'Cookie': 'trc|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R=EPL7DMTJSJ024EUK1VQ7; hac|DUQFZ4LXTWO1DOUW1SKB|DAUG7PQGSC0SA1OIHO0R=|128.187.112.29|1535127182|1a2d395f2824afe9395520d7d11b15fce8b9df58',
-                   'DNT': '1',
-                   'Connection': 'keep-alive'}
         print('POST req to: ' + URL )
-        result = sess.post(URL, headers=headers, cookies=cookies)
+        result = sess.post(URL, headers=HEADER3, cookies=cookies)
         print(result.status_code)
+        print('post2redir:\n{}'.format(result.HEADER3))
+        
         f = open('TX_redir.html','w')
         f.write( result.content )
         f.close()
         
         
     ###################################################################
-    #                              login                              #
-    ###################################################################
-    # Uses username and password to get a logged-in Byugle session.   #
-    #                                                                 #
-    # @un: username                                                   #
-    # @pw: password                                                   #
-    # @return: logged-in Byugle session.                              #
+    #
     ###################################################################
     def loadMaps( self ):
         self.dpt_map = dict()
-        self.dpt_map['0'] = '-- or browse by department --'
-        self.dpt_map['79'] = 'Alice Louise Reynolds'
-        self.dpt_map['2'] = 'American Heritage'
-        self.dpt_map['81'] = 'American Studies'
-        self.dpt_map['3'] = 'Anthropology'
-        self.dpt_map['4'] = 'Asian and Near Eastern Languages'
-        self.dpt_map['86'] = 'Center for Language Studies'
-        self.dpt_map['62'] = 'Center for Teaching and Learning'
-        self.dpt_map['76'] = 'Church History and Doctrine'
-        self.dpt_map['71'] = 'Cluff Lecture Series'
-        self.dpt_map['9'] = 'Communications'
-        self.dpt_map['13'] = 'Department of Business Management'
-        self.dpt_map['14'] = 'Economics'
-        self.dpt_map['17'] = 'English'
-        self.dpt_map['77'] = 'English Reading Series'
-        self.dpt_map['73'] = 'Entrepreneur Lecture Series'
-        self.dpt_map['67'] = 'Faculty Center'
-        self.dpt_map['19'] = 'Family Life'
-        self.dpt_map['74'] = 'Harvard Business School Seminar'
-        self.dpt_map['24'] = 'Health Science'
-        self.dpt_map['68'] = 'Healthy Relationships Conference'
-        self.dpt_map['25'] = 'History'
-        self.dpt_map['61'] = 'House of Learning'
-        self.dpt_map['26'] = 'Humanities, Classics, and Comparative Literature'
-        self.dpt_map['29'] = 'Integrative Biology'
-        self.dpt_map['78'] = 'International Studies'
-        self.dpt_map['69'] = 'Joseph Smith Lectures'
-        self.dpt_map['66'] = 'Library - Special Interests'
-        self.dpt_map['83'] = 'Library Promos'
-        self.dpt_map['30'] = 'Linguistics and English Language'
-        self.dpt_map['59'] = 'LRC'
-        self.dpt_map['63'] = 'LRC/LDS'
-        self.dpt_map['31'] = 'Mathematics'
-        self.dpt_map['34'] = 'Microbiology and Molecular Biology'
-        self.dpt_map['75'] = 'Music and Dance Library'
-        self.dpt_map['58'] = 'Nursing'
-        self.dpt_map['37'] = 'Nutrition, Dietetics, and Food Science'
-        self.dpt_map['64'] = 'Office of Academic Vice President'
-        self.dpt_map['72'] = 'Other Lectures'
-        self.dpt_map['39'] = 'Philosophy'
-        self.dpt_map['40'] = 'Physics and Astronomy'
-        self.dpt_map['43'] = 'Political Science'
-        self.dpt_map['82'] = 'Robert Burns'
-        self.dpt_map['47'] = 'School of Accountancy'
-        self.dpt_map['48'] = 'School of Music'
-        self.dpt_map['49'] = 'School of Technology'
-        self.dpt_map['50'] = 'Social Work'
-        self.dpt_map['51'] = 'Sociology'
-        self.dpt_map['52'] = 'Spanish and Portuguese'
-        self.dpt_map['87'] = 'Special Collections'
-        self.dpt_map['55'] = 'Theatre and Media Arts'
-        self.dpt_map['80'] = 'Thomas L. Kane'
-        self.dpt_map['70'] = 'To Tell the Tale Lectures'
-        self.dpt_map['60'] = 'UEN'
-        self.dpt_map['56'] = 'Visual Arts'
-        self.dpt_map['85'] = 'Wheatley Forum'
+        self.dpt_map['0']  = None#'-- or browse by department --'
+        self.dpt_map['79'] = 'ALR'#'Alice Louise Reynolds'
+        self.dpt_map['2']  = 'AmerHeritage'#'American Heritage'
+        self.dpt_map['81'] = 'AmerStudies'#'American Studies'
+        self.dpt_map['3']  = 'Anthropology'#'Anthropology'
+        self.dpt_map['4']  = 'Asian-East'#'Asian & Near Eastern Languages'
+        self.dpt_map['86'] = 'CLS'#'Center for Language Studies'
+        self.dpt_map['62'] = 'CTL'#'Center for Teaching & Learning'
+        self.dpt_map['76'] = 'ChurchHistDct'#'Church History & Doctrine'
+        self.dpt_map['71'] = 'CluffSeries'#'Cluff Lecture Series'
+        self.dpt_map['9']  = 'Comms'#'Communications'
+        self.dpt_map['13'] = 'BusinessMgmt'#'Department of Business Management'
+        self.dpt_map['14'] = 'Econ'#'Economics'
+        self.dpt_map['17'] = 'English'#'English'
+        self.dpt_map['77'] = 'ERS'#'English Reading Series'
+        self.dpt_map['73'] = 'ELS'#'Entrepreneur Lecture Series'
+        self.dpt_map['67'] = 'FacultyCtr'#'Faculty Center'
+        self.dpt_map['19'] = 'FamilyLife'#'Family Life'
+        self.dpt_map['74'] = 'HarvardBsnss'#'Harvard Business School Seminar'
+        self.dpt_map['24'] = 'HealthSci'#'Health Science'
+        self.dpt_map['68'] = 'Relations'#'Healthy Relationships Conference'
+        self.dpt_map['25'] = 'History'#'History'
+        self.dpt_map['61'] = 'HoL'#'House of Learning'
+        self.dpt_map['26'] = 'HCCL'#'Humanities, Classics, & ComparativeLiterature'
+        self.dpt_map['29'] = 'IntegratvBio'#'Integrative Biology'
+        self.dpt_map['78'] = 'Intrnatl'#'International Studies'
+        self.dpt_map['69'] = 'JSL'#'Joseph Smith Lectures'
+        self.dpt_map['66'] = 'LibrarySI'#'Library - Special Interests'
+        self.dpt_map['83'] = 'LibraryPromos'#'Library Promos'
+        self.dpt_map['30'] = 'LingAndEnglish'#'Linguistics & English Language'
+        self.dpt_map['59'] = 'LRC'#'LRC'
+        self.dpt_map['63'] = 'LRC-LDS'#'LRC/LDS'
+        self.dpt_map['31'] = 'Math'#'Mathematics'
+        self.dpt_map['34'] = 'Micro-Molec-Bio'#'Microbiology & Molecular Biology'
+        self.dpt_map['75'] = 'Music-Dance'#'Music and Dance Library'
+        self.dpt_map['58'] = 'Nursing'#'Nursing'
+        self.dpt_map['37'] = 'Dietetics'#'Nutrition, Dietetics, & Food Science'
+        self.dpt_map['64'] = 'VPOffice'#'Office of Academic Vice President'
+        self.dpt_map['72'] = 'Other'#'Other Lectures'
+        self.dpt_map['39'] = 'Philosophy'#'Philosophy'
+        self.dpt_map['40'] = 'Phys-Astronomy'#'Physics and Astronomy'
+        self.dpt_map['41'] = 'PhysDevBio'#Physiology and Developmental Biology
+        self.dpt_map['43'] = 'PoliSci'#'Political Science'
+        self.dpt_map['82'] = 'RobertBurns'#'Robert Burns'
+        self.dpt_map['47'] = 'AccountancySchl'#'School of Accountancy'
+        self.dpt_map['48'] = 'MusicSchool'#'School of Music'
+        self.dpt_map['49'] = 'TechSchool'#'School of Technology'
+        self.dpt_map['50'] = 'SocialWork'#'Social Work'
+        self.dpt_map['51'] = 'Sociology'#'Sociology'
+        self.dpt_map['52'] = 'Span-Port'#'Spanish and Portuguese'
+        self.dpt_map['87'] = 'SC'#'Special Collections'
+        self.dpt_map['55'] = 'Theatre-Media'#'Theatre and Media Arts'
+        self.dpt_map['80'] = 'ThomasLKane'#'Thomas L. Kane'
+        self.dpt_map['70'] = 'TTTL'#'To Tell the Tale Lectures'
+        self.dpt_map['60'] = 'UEN'#'UEN'
+        self.dpt_map['56'] = 'VisualArts'#'Visual Arts'
+        self.dpt_map['85'] = 'Wheatley'#'Wheatley Forum'
 
         self.col_map = dict()
-        self.col_map['0'] = 'Please select your College'
-        self.col_map['13'] = 'BYU Administration'
-        self.col_map['16'] = 'David M. Kennedy Center'
-        self.col_map['2'] = 'Engineering and Technology '
-        self.col_map['14'] = 'Faculty Center'
-        self.col_map['3'] = 'Family, Home, & Social Sciences '
-        self.col_map['4'] = 'Fine Arts and Communications '
-        self.col_map['12'] = 'Harold B. Lee Library'
-        self.col_map['5'] = 'Health and Human Performance '
-        self.col_map['6'] = 'Humanities '
-        self.col_map['7'] = 'J. Reuben Clark Law School '
-        self.col_map['17'] = 'Kennedy Center'
-        self.col_map['1'] = 'Life Sciences'
-        self.col_map['8'] = 'Marriott School of Management '
-        self.col_map['9'] = 'McKay School of Education '
-        self.col_map['10'] = 'Nursing '
-        self.col_map['11'] = 'Physical & Math. Sciences '
-        self.col_map['15'] = 'Religious Education'
+        self.col_map['0']  = None#'Please select your College'
+        self.col_map['13'] = 'BYUAdmin'#'BYU Administration'
+        self.col_map['16'] = 'DavidKennedyCtr'#'David M. Kennedy Center'
+        self.col_map['2']  = 'Engineering-Tech'#'Engineering and Technology'
+        self.col_map['14'] = 'FacultyCenter'#'Faculty Center'
+        self.col_map['3']  = 'FHSS'#'Family, Home, & Social Sciences'
+        self.col_map['4']  = 'FineArts-Comms'#'Fine Arts and Communications'
+        self.col_map['12'] = 'HBLL'#'Harold B. Lee Library'
+        self.col_map['5']  = 'Health-Performance'#'Health and Human Performance'
+        self.col_map['6']  = 'Humanities'
+        self.col_map['7']  = 'JRC-LawSchool'#'J. Reuben Clark Law School'
+        self.col_map['17'] = 'KennedyCtr'#'Kennedy Center'
+        self.col_map['1']  = 'LifeSciences'#'Life Sciences'
+        self.col_map['8']  = 'MarriottSchool'#'Marriott School of Management'
+        self.col_map['9']  = 'McKaySchool'#'McKay School of Education'
+        self.col_map['10'] = 'Nursing'
+        self.col_map['11'] = 'Phys-Math-Sci'#'Physical & Math. Sciences'
+        self.col_map['15'] = 'ReligiousEducation'#'Religious Education'
 
 
     ###################################################################
-    #                              login                              #
+    #
     ###################################################################
-    # Uses username and password to get a logged-in Byugle session.   #
-    ###################################################################
-    def dpt_name( self, num ):
-        return self.dpt_map[num]
+    def getDpt( self, dpt_no ):
+        if self.dpt_map[ dpt_no ] != None:
+            return self.dpt_map[ dpt_no ]
+        else:
+            print( 'Unknown department!' )
+            return 'UnknownDpt'
 
     ###################################################################
-    #                            col_name                             #
+    #
     ###################################################################
-    # Uses username and password to get a logged-in Byugle session.   #
-    ###################################################################
-    def col_name( self, num ):
-        return self.col_map[num]
-
+    def getCol( self, college_no ):
+        if self.col_map[ college_no ] != None:
+            return self.col_map[ college_no ]
+        else:
+            print( 'Unknown college!' )
+            return 'UnknownCollege'    
 
     ###################################################################
     #                           update_video                          #
     ###################################################################
-    # Uses username and password to get a logged-in Byugle session.   #
-    #                                                                 #
-    # @un: username                                                   #
-    # @pw: password                                                   #
-    # @return: logged-in Byugle session.                              #
+    # 
     ###################################################################
-    def update_video( self, URL, params ):
+    def post_form_data( self, URL, params, log_response=False ):
 
-        post = self.session.post(URL, \
-                            headers={\
-                                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",\
-                                     "Accept-Encoding": "gzip, deflate",\
-                                     "Accept-Language": "en-US,en;q=0.5",\
-                                     "Connection": "keep-alive",\
-                                     "Content-Type": "application/x-www-form-urlencoded",
-                                     "Host": "byugle.lib.byu.edu",
-                                     "Referer": "http://byugle.lib.byu.edu/editVideoDataAdmin.php?vid=1022",
-                                     "Upgrade-Insecure-Requests": "1",
-                                     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:60.0) Gecko/20100101 Firefox/60.0",
-                                     "Cookie": "HBLL_IS_AUTH=true; " },\
-                                 data=params)
+        POST_HEADERS["Cookie"] = "HBLL_IS_AUTH=true; " + \
+        "PHPSESSID=" + self.php_cookie + "; " + \
+        "HBLL=" + self.hbll_cookie + ";"
+        
+        post = self.session.post(
+            URL,
+            headers = POST_HEADERS,
+            data = params
+        )
 
 
         soup = BeautifulSoup(post.content,'html.parser')
@@ -340,24 +354,24 @@ class Handler():
             #todo move log functionality from mirror.py to s.t.  more general
             raise Exception(err)
 
-        #for testing ---
-        file = open('test.html','w')
-        file.write(post.content)
-        file.close()
+        if log_response:
+            file = open('test.html','w')
+            file.write( post.content.decode('utf8') )
+            file.close()
         
     ###################################################################
     #                              parse_HTML                         #
     ###################################################################
-    #                                                                 #
+    #  Todo: Take an HTML document as an argument                     #
     ###################################################################
     def parse_HTML( self, VID_ID ):
         dictionary = dict()
         page = self.session.get('http://byugle.lib.byu.edu/' + \
                                 'editVideoDataAdmin.php?vid='+ \
                                 VID_ID)
-        soup = BeautifulSoup(page.content, 'html.parser')
+        soup = BeautifulSoup( page.content, 'html.parser' )
         dictionary['btnSubmit'] = 'Save'
-
+        
         ###########
         if soup.find(id="radCopyrightYes").get('checked') != None:
             dictionary['radCopyright'] = '1'
@@ -396,7 +410,6 @@ class Handler():
         dictionary['ruleYrEnd'] = ''
         dictionary['ruleYrStart'] = ''
         ###########
-
         # byugle gives weird <select> tags here not recognized by parser.html.
         # handling through siblings rather than through children
         ###########

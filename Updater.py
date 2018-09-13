@@ -1,10 +1,15 @@
+from configparser import RawConfigParser
+import subprocess
+import datetime
+
 class Updater():
 
     def __init__( self ):
-        self.log = u''
+        self.log = ''
+        self.config()
 
     def prep_log_msg( self, msg ):
-        self.log += msg + u'\n'
+        self.log += msg + '\n'
         
     ###################################################################
     #                               log                               #
@@ -21,53 +26,50 @@ class Updater():
         except OSError:
             print("Unable to write to log file")
 
+    def log_date_time( self, date=True, time=True ):
+        if not date and not time:
+            return
+        
+        now_obj = datetime.datetime.now()
+        date = '{}.{}.{}'.format( now_obj.year, now_obj.month, now_obj.day )
+        time = '{}:{}:{}.{}'.format(
+            now_obj.hour, now_obj.minute, now_obj.second, now_obj.microsecond
+        )
 
-    ###################################################################
-    #                              mirror_config                             #
-    ###################################################################
-    def mirror_config( self, filename='./config.ini' ):
+        now = ''
+        if date:
+            now += date
+        if time:
+            now += ', ' + time
+        
+        self.prep_log_msg( now )
+
+    def config( self, filename='./config.ini' ):
         try:
-            print(os.getcwd())
-            parser = RawConfigParser()
-            parser.read(filename)
-            section = 'SFTP_vars'
+            config_parser = RawConfigParser()
+            config_parser.read(filename)
+
+            self.SFTP_HOST      = config_parser.get( 'SFTP_vars', 'HOST' )
+            self.SFTP_PORT      = config_parser.get( 'SFTP_vars', 'PORT' )
+            self.SFTP_UN        = config_parser.get( 'SFTP_vars', 'UN' )
+            self.SFTP_PW        = config_parser.get( 'SFTP_vars', 'PW' )
+            self.SFTP_START_DIR = config_parser.get( 'SFTP_vars', 'START_DIR' )
             
-            self.HOST = parser.get(section,'HOST')
-            self.PORT = int(parser.get(section,'PORT'))
-            self.UN = parser.get(section,'UN')
-            self.PW = parser.get(section,'PW')
-            self.START_DIR = parser.get(section,'START_DIR')
-            bHa
+            self.SMB_HOST       = config_parser.get( 'SMB_vars', 'HOST' )
+            self.SMB_ROOT       = config_parser.get( 'SMB_vars', 'ROOT' )
+            self.SMB_UN         = config_parser.get( 'SMB_vars', 'UN' )
+            self.SMB_PW         = config_parser.get( 'SMB_vars', 'PW' )
+            self.SMB_MTPT       = config_parser.get( 'SMB_vars', 'MTPT' )
+            
         except OSError:
             print( 'OSError: Config file parse failed' )
-
 
     ###################################################################
     #
     ###################################################################
     def mount_smbfs( self ):
-        cmd = 'mount_smbfs //' + \
-            self.UN + ':' + self.PW + '@' + \
-            self.HOST + self.ROOT + ' ' + self.MTPT
+        cmd = 'mount_smbfs //' \
+            + self.SMB_UN + ':' + self.SMB_PW + '@' \
+            + self.SMB_HOST + self.SMB_ROOT + ' ' \
+            + self.SMB_MTPT
         subprocess.call( cmd.split() )
-
-    ###################################################################
-    #                           renamer_config                                #
-    ###################################################################
-    #
-    #
-    ###################################################################
-    def renamer_config( self, filename='./config.ini' ):
-        try:
-            parser = RawConfigParser()
-            parser.read(filename)
-            section = 'SMB_vars'
-            
-            self.HOST = parser.get( section, 'HOST' )
-            self.UN = parser.get( section, 'UN' )
-            self.PW = parser.get( section, 'PW' )
-            self.ROOT = parser.get( section, 'ROOT' )
-            self.MTPT = parser.get( section, 'MTPT' )
-            
-        except OSError:
-            print( 'OSError: Config file parse failed' )
