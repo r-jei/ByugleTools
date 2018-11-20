@@ -24,14 +24,13 @@ todo:
 # @self.handler: Handler.Handler()                                #
 #                                                                 #
 # methods                                                         #
-# @copy_thumb: uses FTP to copy old thumbnails into new     #
+# @copy_thumb: uses FTP to copy old thumbnails into new           #
 #   locations on the FTP server.                                  #
 # @update_metadata: updates the Byugle editVideoDataAdmin.php     #
 #   form to get thumbnail from elsewhere. Also records update     #
 #   history and fills in missing information on the form.         #
 #   TODO: Separate thumbnail-update functionality                 #
 #       from information-fill functionality                       #
-# @log: Simple logging function with error handling.              #
 # @mirror_thumb: Parse HTML, Mirror thumbnail, update metadata.   #
 ###################################################################
 class Mirror(Updater):
@@ -49,7 +48,7 @@ class Mirror(Updater):
     # @VID_ID: The URL Video ID of the video to update.               #
     ###################################################################
     def mirror_thumb( self, VID_ID ):
-        param_dict = self.handler.parse_HTML( VID_ID )
+        param_dict = self.handler.parse_html( VID_ID )
 
         new_url = self.copy_thumb(
             param_dict['txtStreamUrl'],
@@ -74,7 +73,8 @@ class Mirror(Updater):
     # Copy thumbnail file to the sftp thumbnail server at a location  #
     # analogous to that of the video file's location on the streaming #
     # server, with the same filename as the video file. Afterwards,   #
-    # update_metadata should be used so that the target video refer-  #
+    # update_metadata should be used so that the target video's page  #
+    # references the right file                                       #
     #                                                                 #
     # For example:                                                    #
     # Video_xx has:                                                   #
@@ -107,14 +107,14 @@ class Mirror(Updater):
             self.sftp.chdir( self.SFTP_START_DIR )
             print(  self.sftp.getcwd() )
             
-            if self.thumb_exists( decoded_url ) is None:
+            if not self.thumb_exists( decoded_url ):
                 return None
             
             new_thumb_url, new_filename = self.setup_dirs(
                 decoded_url, new_filepath
             )
             self.copy( new_filename, old_thumb_url )
-                    
+
         except Exception as exc:
             print( repr(exc) )
         finally:
@@ -126,14 +126,11 @@ class Mirror(Updater):
     ###################################################################
     #
     ###################################################################
-    #todo - this isn't going to change thumb_url because it's immutable
     def generate_urls( self, thumb_url, stream_url ):
-
-
         #decode the url from percent-encoding
-        decoded_url = urllib.parse.unquote(thumb_url)
-        decoded_url = decoded_url.replace(self.PREFIX,'')
-        thumb_ext = os.path.splitext(decoded_url)[1]
+        deq_thumb_url = urllib.parse.unquote(thumb_url)
+        deq_thumb_url = deq_thumb_url.replace(self.PREFIX,'')
+        thumb_ext = os.path.splitext(deq_thumb_url)[1]
 
         stream_ext = os.path.splitext(stream_url)[1]
         print(('"' + stream_ext + '"'))
@@ -143,13 +140,13 @@ class Mirror(Updater):
         else:
             new_filepath += thumb_ext
 
-        old_thumb_url = self.SFTP_START_DIR + decoded_url
+        old_thumb_url = self.SFTP_START_DIR + deq_thumb_url
 
-        if '' in [stream_url,decoded_url]:
+        if '' in [stream_url,deq_thumb_url]:
             print('empty string in either stream or thumb url')
             return None, None, None
         
-        return old_thumb_url, new_filepath, decoded_url
+        return old_thumb_url, new_filepath, deq_thumb_url
 
     
     ###################################################################
@@ -163,10 +160,10 @@ class Mirror(Updater):
         
         if dirs[0]=='BYU':
             #set name of thumbnail folder within /images/
-            dirs[0] = "BYU_thumbs" 
+            dirs[0] = self.SFTP_THUMB_DIR 
         else:
             #this shouldn't happen often, as BYUgle forces BYU to be the first directory.
-            dirs.insert(0,'BYU_thumbs')
+            dirs.insert(0,self.SFTP_THUMB_DIR)
             
             dirs.insert(1,'root_images')
                 
@@ -220,11 +217,7 @@ class Mirror(Updater):
         
         except IOError:
             print('no thumbnail on the old thumbnail url')
-            return None
-        
-
-
-
+            return False
 
     ##################################################################
     #                      update_metadata                           #
@@ -300,7 +293,9 @@ class Mirror(Updater):
     ###################################################################
     #                        update_description                       #
     ###################################################################
-    #
+    # Including this information in the description allows users to
+    # search for a video according to speaker, series, date, or what
+    # ever may be in the description. This fnction
     ###################################################################
     def update_description( self, params ):
 
